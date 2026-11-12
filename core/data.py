@@ -1,11 +1,13 @@
 """가격 데이터 다운로드와 수익률 계산. 매번 받지 않도록 data/에 CSV로 저장해 둔다."""
+import os
 from pathlib import Path
 
 import pandas as pd
 
 from core import config
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# MPT_DATA_DIR 환경변수로 다른 폴더를 쓸 수 있음 (저장소 data/를 건드리지 않고 업데이트를 시험할 때)
+DATA_DIR = Path(os.environ.get("MPT_DATA_DIR") or Path(__file__).resolve().parent.parent / "data")
 
 
 def price_path(market: str) -> Path:
