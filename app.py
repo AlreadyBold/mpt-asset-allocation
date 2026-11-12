@@ -167,8 +167,29 @@ with st.sidebar:
                              value=10_000_000 if cur == "KRW" else 10_000,
                              step=1_000_000 if cur == "KRW" else 1_000)
     st.divider()
-    st.caption("데이터: Yahoo Finance 수정종가 · 매년 말 리밸런싱 · 거래비용 10bp · "
-               "리밸런싱 때 직전 3년 데이터 사용")
+    # ---- 데이터 기준일과 업데이트: 마지막 가격이 STALE_DAYS보다 오래되면 버튼을 띄움
+    st.subheader("데이터")
+    last, old = data.last_date(market), data.days_old(market)
+    st.caption(f"기준일 **{last:%Y.%m.%d}** ({old}일 전) · Yahoo Finance 수정종가")
+    stale = any((data.days_old(m) or 999) >= config.STALE_DAYS for m in config.MARKETS)
+    if stale:
+        st.warning(f"가격 데이터가 {config.STALE_DAYS}일 넘게 지났습니다.", icon="📅")
+    if st.button("최신 데이터로 업데이트", type="primary" if stale else "secondary", width="stretch",
+                 help="세 투자 대상의 가격을 어제 종가까지 다시 받고, 프론티어와 과거 성과를 모두 다시 계산합니다 "
+                      "(1~2분). 계산이 다 끝나야 저장되므로 중간에 실패해도 기존 데이터는 그대로입니다."):
+        import build_data
+        with st.status("데이터 업데이트 중…", expanded=True) as status:
+            try:
+                for m in config.MARKETS:
+                    st.write(f"{config.MARKETS[m]['label']} 가격 받고 다시 계산하는 중…")
+                    build_data.build(m, True, log=lambda msg: st.write("✅ " + msg))
+                st.cache_data.clear()
+                status.update(label="업데이트 완료", state="complete")
+                ss.update(scroll_top=ss.get("scroll_top", 0) + 1)
+                st.rerun()
+            except Exception as e:  # 인터넷 끊김, Yahoo 응답 없음 등 -> 기존 데이터 유지
+                status.update(label="업데이트 실패: 기존 데이터를 그대로 씁니다", state="error")
+                st.error(f"{e}")
 
 if ss.get("scroll_top"):
     # 투자 대상을 바꾸면 화면 맨 위로 이동. Streamlit은 다시 그려도 스크롤 위치를 유지해서,
@@ -235,7 +256,7 @@ rets_labels = [f"{r * 100:.1f}%" for r in ft["Return"]]
 rets_labels = [f"{l} ({i})" if rets_labels.count(l) > 1 else l for i, l in enumerate(rets_labels)]
 sel_label = st.select_slider(
     "위험 수준 조절 · 왼쪽으로 갈수록 안정적, 오른쪽으로 갈수록 공격적 (표시 값 = 1년 기대 수익률)",
-    options=rets_labels, value=rets_labels[default_row], key=f"slider_{market}_{cap}_{score}",
+    options=rets_labels, value=rets_labels[default_row], key=f"slider_{market}_{cap}_{score}_{data.last_date(market):%Y%m%d}",
     help="처음 위치는 설문 점수로 정해집니다. 효율적 프론티어 위 100개 지점을 미리 계산해 두고 가장 가까운 지점을 보여줍니다.")
 row = rets_labels.index(sel_label)
 P = ft.iloc[row]
