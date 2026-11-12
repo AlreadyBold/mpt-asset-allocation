@@ -6,6 +6,7 @@
 - 투자 대상 세 가지: 미국 상장 ETF 10종 / 한국 상장 ETF 10종 / 한국·미국 대형주 20종목(원화 기준)
 - 비교 기준: MVP, 최대샤프(참고), Risk Parity, Most Diversified, Equal Weight
 - 성과: 매년 말 리밸런싱 백테스트 (CAGR, 변동성, 샤프, 소르티노, MDD, 연도별 수익률, 하락장 구간)
+- 결과물: 지금 화면 설정 그대로 PDF 리포트 내려받기, 버튼 한 번으로 최신 가격 업데이트
 
 ## 실행
 
@@ -26,12 +27,14 @@ python3 -m venv .venv
 
 | 경로 | 내용 |
 |---|---|
-| `app.py` | Streamlit 화면 (설문 / 내 포트폴리오 / 모형 비교 / 성과 리포트 / 자산 정보) |
+| `app.py` | Streamlit 화면 (설문 → 추천 대시보드) |
 | `build_data.py` | 프론티어 100개 지점, 백테스트를 미리 계산해 `data/`에 저장 |
 | `core/config.py` | 투자 대상 세 가지와 공통 설정 |
 | `core/survey.py` | M1 투자성향 진단 |
 | `core/frontier.py` | M2 효율적 프론티어, 성향 위치별 비중 |
 | `core/backtest.py` | M3 비교 모형 + M4 백테스트 |
+| `core/report.py` | PDF 리포트 생성 |
+| `assets/fonts/` | PDF용 한글 글꼴 (나눔고딕, OFL) |
 | `course/` | 수업 모듈(quant_model_modules, cal_nav_module) 중 쓰는 함수 |
 
 ## 주요 가정
@@ -42,3 +45,5 @@ python3 -m venv .venv
 - 백테스트: 매년 말 리밸런싱, 직전 756거래일(약 3년) 데이터, 거래비용 10bp
 
 > 과거 성과는 미래 수익을 보장하지 않습니다. 수업 프로젝트용 프로토타입이며 투자 권유가 아닙니다.
+
+문서: [docs/](docs/README.md) (발표자 가이드, 구조와 모듈, 문제와 해결)
