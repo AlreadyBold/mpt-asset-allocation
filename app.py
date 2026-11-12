@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from core import backtest as bt
 from core import config, data, survey
@@ -142,6 +143,7 @@ with st.sidebar:
     st.divider()
     st.header("설정")
     market = st.radio("투자 대상", list(config.MARKETS), format_func=lambda m: config.MARKETS[m]["label"],
+                      key="market", on_change=lambda: ss.update(scroll_top=ss.get("scroll_top", 0) + 1),
                       help="ETF 버전은 주식·채권·리츠·금 등 자산군을 고르게 담고, 대형주 버전은 한국·미국 개별 종목 20개(원화 기준)로 구성한다. 미국 상장은 해외주식 계좌, 한국 상장은 국내 계좌에서 살 수 있다")
     cap_on = st.toggle("자산별 비중 상한 40%", value=False,
                        help="한 자산에 비중이 몰리는 것(코너해)을 막는다. 추천 비중과 백테스트 모두에 적용")
@@ -153,6 +155,17 @@ with st.sidebar:
     st.divider()
     st.caption("데이터: Yahoo Finance 수정종가 · 매년 말 리밸런싱 · 거래비용 10bp · "
                "리밸런싱 때 직전 3년 데이터 사용")
+
+if ss.get("scroll_top"):
+    # 투자 대상을 바꾸면 화면 맨 위로 이동. Streamlit은 다시 그려도 스크롤 위치를 유지해서,
+    # 아래쪽을 보다가 바꾸면 무엇이 바뀌었는지 알기 어려움. 숫자(nonce)가 바뀌어야 스크립트가 다시 실행됨
+    components.html(f"""<script>// {ss.scroll_top}
+      const d = window.parent.document;
+      for (const sel of ['[data-testid="stMain"]', '[data-testid="stAppViewContainer"]', 'section.main']) {{
+        const el = d.querySelector(sel); if (el) el.scrollTo({{top: 0, behavior: 'smooth'}});
+      }}
+      window.parent.scrollTo({{top: 0, behavior: 'smooth'}});
+    </script>""", height=0)
 
 D = load(market)
 assets = config.asset_table(market)
