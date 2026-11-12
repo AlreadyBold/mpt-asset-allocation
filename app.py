@@ -83,8 +83,62 @@ def pos_key(p: float, cap: float) -> str:
     return f"pos_{p:.2f}_cap{cap:.1f}"
 
 
-# ---------------------------------------------------------------- 사이드바
+# ================================================================ 1단계: 설문 화면
+# 설문을 끝내고 '결과 보기'를 누르면 대시보드로 넘어간다. 응답은 session_state["answers"]에 보관
+# (위젯 값은 화면에서 사라지면 Streamlit이 지우므로 따로 저장해야 '설문 다시 하기' 때 이전 응답을 채울 수 있음)
+ss = st.session_state
+ss.setdefault("page", "survey")
+ss.setdefault("answers", [None] * len(survey.QUESTIONS))
+
+if ss.page == "survey":
+    _, mid, _ = st.columns([1, 3, 1])
+    with mid:
+        st.title("내 성향에 맞는 효율적 포트폴리오")
+        st.write("7개 질문에 답하면 투자성향을 진단하고, 그 성향에 맞는 효율적 포트폴리오(ETF 투자비중)를 추천합니다.")
+        answers = [ss.get(f"q{i}") for i in range(len(survey.QUESTIONS))]
+        n_done = sum(a is not None for a in answers)
+        st.progress(n_done / 7, text=f"{n_done} / 7 문항 응답")
+        for i, (q, opts) in enumerate(survey.QUESTIONS):
+            prev = ss.answers[i]
+            st.radio(f"**Q{i + 1}. {q}**", opts, index=None if prev is None else prev, key=f"q{i}",
+                     format_func=lambda o, opts=opts: f"{'①②③④⑤'[opts.index(o)]} {o}")
+        answers = [ss.get(f"q{i}") for i in range(len(survey.QUESTIONS))]
+        done = all(a is not None for a in answers)
+        idx = [survey.QUESTIONS[i][1].index(a) if a is not None else None for i, a in enumerate(answers)]
+        partial = sum(survey.option_score(j) for j in idx if j is not None)
+        st.divider()
+        with st.container(border=True):
+            c1, c2 = st.columns([1, 2])
+            c1.metric("설문 점수" if done else "지금까지 점수", f"{partial}점",
+                      help="① 5점, ② 4점, ③ 3점, ④ 2점, ⑤ 1점 (7~35점)")
+            if done:
+                t = survey.classify(partial)
+                c2.subheader(t)
+                c2.write(survey.TYPES[t]["desc"])
+            else:
+                c2.info(f"아직 {7 - n_done}문항이 남았습니다.")
+        if st.button("결과 보기 →", type="primary", disabled=not done, width="stretch"):
+            ss.answers = idx
+            ss.page = "dashboard"
+            st.rerun()
+        with st.expander("점수와 투자성향 구간"):
+            st.dataframe(pd.DataFrame([{"점수": f"{v['range'][0]}~{v['range'][1]}점", "투자성향": k, "특징": v["desc"]}
+                                       for k, v in survey.TYPES.items()]), hide_index=True, width="stretch")
+            st.caption("점수가 높을수록 효율적 프론티어의 오른쪽(높은 위험·높은 기대수익)에 위치합니다.")
+    st.stop()
+
+# ================================================================ 2단계: 대시보드
+score = survey.total_score(ss.answers)
+ptype = survey.classify(score)
+done = True
+
 with st.sidebar:
+    st.header("내 투자성향")
+    st.subheader(f"{ptype} · {score}점")
+    if st.button("설문 다시 하기", width="stretch"):
+        ss.page = "survey"
+        st.rerun()
+    st.divider()
     st.header("설정")
     market = st.radio("투자 대상", list(config.MARKETS), format_func=lambda m: config.MARKETS[m]["label"],
                       help="미국 상장 ETF는 해외주식 계좌로, 한국 상장 ETF는 국내 계좌·연금·ISA에서 살 수 있다")
@@ -103,12 +157,6 @@ D = load(market)
 assets = config.asset_table(market)
 ft = D["frontier"][cap]
 names = list(assets.index)
-
-# ---------------------------------------------------------------- 설문 상태
-answers = [st.session_state.get(f"q{i}") for i in range(len(survey.QUESTIONS))]
-done = all(a is not None for a in answers)
-score = survey.total_score([survey.QUESTIONS[i][1].index(a) for i, a in enumerate(answers)]) if done else 18
-ptype = survey.classify(score)
 
 # 성향 -> 프론티어 위치 (변동성 기준 0~1) -> 가장 가까운 프론티어 지점
 v_lo, v_hi = ft["Volatility"].iloc[0], ft["Volatility"].iloc[-1]
@@ -129,43 +177,13 @@ def row_type(pos: float) -> str:
 
 default_row = nearest_row(survey.score_to_position(score))
 
-st.title("내 성향에 맞는 효율적 포트폴리오")
-st.caption("투자성향 진단 → 효율적 프론티어 → ETF 맞춤 자산배분 추천 · "
-           f"현재 투자 대상: **{config.MARKETS[market]['label']}**")
+st.title("내 포트폴리오 대시보드")
+st.caption(f"투자 대상: **{config.MARKETS[market]['label']}** · 바로가기: "
+           "[내 포트폴리오](#portfolio) · [모형 비교](#compare) · [성과 리포트](#report) · [자산 정보](#assets)")
 
-tabs = st.tabs(["① 투자성향 설문", "② 내 포트폴리오", "③ 모형 비교", "④ 성과 리포트", "⑤ 자산 정보"])
-
-# ================================================================ ① 설문
-with tabs[0]:
-    left, right = st.columns([3, 2], gap="large")
-    with left:
-        n_done = sum(a is not None for a in answers)
-        st.progress(n_done / 7, text=f"{n_done} / 7 문항 응답")
-        for i, (q, opts) in enumerate(survey.QUESTIONS):
-            st.radio(f"**Q{i + 1}. {q}**", opts, index=None, key=f"q{i}",
-                     format_func=lambda o, opts=opts: f"{'①②③④⑤'[opts.index(o)]} {o}")
-    with right:
-        with st.container(border=True):
-            if done:
-                st.metric("설문 점수", f"{score}점", help="① 5점, ② 4점, ③ 3점, ④ 2점, ⑤ 1점 (7~35점)")
-                st.subheader(ptype)
-                st.write(survey.TYPES[ptype]["desc"])
-                st.success("② 내 포트폴리오 탭에서 추천 비중을 확인하세요.")
-            else:
-                partial = sum(survey.option_score(survey.QUESTIONS[i][1].index(a))
-                              for i, a in enumerate(answers) if a is not None)
-                st.metric("지금까지 점수", f"{partial}점")
-                st.info("7문항에 모두 답하면 투자성향이 나옵니다. 그 전에는 다른 탭에 예시(18점, 위험중립형)가 표시됩니다.")
-        st.markdown("**투자성향 구간**")
-        st.dataframe(pd.DataFrame([{"점수": f"{v['range'][0]}~{v['range'][1]}점", "투자성향": k, "특징": v["desc"]}
-                                   for k, v in survey.TYPES.items()]), hide_index=True, width="stretch")
-        st.caption("점수가 높을수록 프론티어 오른쪽(높은 위험·높은 기대수익)에 위치합니다. "
-                   "위치 = (점수 − 7) ÷ 28, 변동성 기준으로 MVP(0)부터 프론티어 끝(1)까지.")
-
-# ================================================================ ② 내 포트폴리오
-with tabs[1]:
-    if not done:
-        st.info("설문을 끝내지 않아 예시 점수 18점(위험중립형)으로 보여줍니다.")
+# ================================================================ 내 포트폴리오
+with st.container():
+    st.header("내 포트폴리오", anchor="portfolio", divider="gray")
 
     rets_labels = [f"{r * 100:.2f}%" for r in ft["Return"]]
     sel_label = st.select_slider(
@@ -186,7 +204,7 @@ with tabs[1]:
         with st.container(border=True):
             st.caption("내 투자성향")
             st.subheader(ptype)
-            st.write(f"설문 점수 **{score}점**" + ("" if done else " (예시)"))
+            st.write(f"설문 점수 **{score}점**")
             st.caption(survey.TYPES[ptype]["desc"])
             if at_type != ptype:
                 st.warning(f"지금 고른 지점은 **{at_type}** 구간입니다. 내 성향보다 "
@@ -283,8 +301,9 @@ with tabs[1]:
     fig.update_yaxes(title="비중", tickformat=".0%", range=[0, 1])
     st.plotly_chart(fig_layout(fig, 320, hovermode="x unified"), width="stretch")
 
-# ================================================================ ③ 모형 비교
-with tabs[2]:
+# ================================================================ 모형 비교
+with st.container():
+    st.header("모형 비교", anchor="compare", divider="gray")
     mu_, cov_ = D["mu"].to_numpy(), D["cov"].to_numpy()
     W = pd.DataFrame({
         "내 포트폴리오": w_my.to_numpy(),
@@ -322,10 +341,11 @@ with tabs[2]:
         "IEF 100%(2019), DBC 100%(2023) 같은 해가 생겼고 백테스트 샤프가 비교 모형 중 가장 낮았습니다. "
         "또 무위험수익률을 0으로 두면 한국 버전처럼 단기채(국고채3년)가 대부분을 차지합니다. "
         "그래서 이 서비스는 설문 점수에 비례한 **목표 변동성 지점**을 추천하고, 최대샤프는 프론티어 위 기준점으로만 표시합니다. "
-        "기대수익률 추정 기간을 3년으로 늘리면 최대샤프의 성과도 크게 나아지는데, 이 결과는 ④ 성과 리포트에서 비교할 수 있습니다.")
+        "기대수익률 추정 기간을 3년으로 늘리면 최대샤프의 성과도 크게 나아지는데, 이 결과는 아래 성과 리포트에서 비교할 수 있습니다.")
 
-# ================================================================ ④ 성과 리포트
-with tabs[3]:
+# ================================================================ 성과 리포트
+with st.container():
+    st.header("성과 리포트", anchor="report", divider="gray")
     nav_all = D["nav"].rename(columns={pos_key(bt_pos, cap): "내 포트폴리오"})
     pick = st.multiselect("함께 그릴 비교 기준 (추천 비중에는 영향 없음)", ["내 포트폴리오", *MODELS],
                           default=["내 포트폴리오", *MODELS],
@@ -409,8 +429,9 @@ with tabs[3]:
         st.dataframe(wl.set_index(wl.index.year + 1).rename_axis("보유 연도").style.format("{:.0%}")
                      .background_gradient(cmap="Blues", vmin=0, vmax=1), width="stretch")
 
-# ================================================================ ⑤ 자산 정보
-with tabs[4]:
+# ================================================================ 자산 정보
+with st.container():
+    st.header("자산 정보", anchor="assets", divider="gray")
     s = D["stats"]
     info = assets.assign(기대수익률=s["Return"], 변동성=s["Volatility"], 샤프=s["Return"] / s["Volatility"])
     r = D["returns"]
