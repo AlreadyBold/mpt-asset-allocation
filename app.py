@@ -201,22 +201,74 @@ with st.container():
 
     c1, c2 = st.columns([1, 3], gap="medium")
     with c1:
-        with st.container(border=True):
+        # 높이를 고정해 슬라이더를 움직여도 아래 내용이 위아래로 흔들리지 않게 함
+        with st.container(border=True, height=340):
             st.caption("내 투자성향")
             st.subheader(ptype)
             st.write(f"설문 점수 **{score}점**")
             st.caption(survey.TYPES[ptype]["desc"])
-            if at_type != ptype:
-                st.warning(f"지금 고른 지점은 **{at_type}** 구간입니다. 내 성향보다 "
-                           f"{'위험이 큽니다' if list(survey.TYPES).index(at_type) > list(survey.TYPES).index(ptype) else '보수적입니다'}.")
+            st.caption("지금 고른 지점")
+            if at_type == ptype:
+                st.markdown(f"✅ **{at_type}** 구간 안")
+            else:
+                riskier = list(survey.TYPES).index(at_type) > list(survey.TYPES).index(ptype)
+                st.markdown(f"⚠️ **{at_type}** 구간  \n내 성향보다 {'위험이 큽니다' if riskier else '보수적입니다'}")
     with c2:
+        cagr = (my_nav.iloc[-1] / my_nav.iloc[0]) ** (252 / len(my_nav)) - 1
+        dd = my_nav / my_nav.cummax() - 1
+        ann_my = bt.annual_returns(my_nav.to_frame("r"))["r"]
+        if (my_nav.index.year == ann_my.index[0]).sum() < 5:
+            ann_my = ann_my.iloc[1:]
         m = st.columns(5)
         m[0].metric("기대수익률 (연)", pct(P["Return"]), help=GLOSSARY["기대수익률"])
         m[1].metric("변동성 (연)", pct(P["Volatility"]), help=GLOSSARY["변동성"])
         m[2].metric("샤프비율", f"{P['Sharpe']:.2f}", help=GLOSSARY["샤프비율"])
         m[3].metric("과거 최대낙폭", pct(my_dd), help="같은 위치를 매년 말 다시 계산해 보유했을 때의 백테스트 MDD")
-        cagr = (my_nav.iloc[-1] / my_nav.iloc[0]) ** (252 / len(my_nav)) - 1
         m[4].metric("과거 연평균 수익률", pct(cagr), help=f"백테스트 CAGR ({my_nav.index[0]:%Y.%m}~)")
+
+        # 지표마다 그 아래에 작은 그래프: 앞의 셋은 프론티어 100개 지점에서의 변화(점 = 지금 위치),
+        # 뒤의 둘은 지금 위치의 백테스트(낙폭 추이, 연도별 수익률)
+        def spark(fig, note):
+            fig.update_xaxes(visible=False, automargin=False)
+            fig.update_yaxes(showgrid=True, gridcolor=GRID, tickfont=dict(size=10, color=MUTED), nticks=3)
+            fig_layout(fig, 130, showlegend=False)
+            fig.update_layout(margin=dict(l=0, r=10, t=8, b=8))
+            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
+            st.caption(note)
+
+        def frontier_spark(col, fmt, note):
+            fig = go.Figure(go.Scatter(x=ft["Return"], y=ft[col], mode="lines", line=dict(color=MUTED, width=2),
+                                       hovertemplate=f"기대수익률 %{{x:.1%}}<br>%{{y:{fmt}}}<extra></extra>"))
+            fig.add_trace(go.Scatter(x=[P["Return"]], y=[P[col]], mode="markers", cliponaxis=False,
+                                     marker=dict(size=10, color="#2a78d6", line=dict(width=2, color="#fcfcfb")),
+                                     hovertemplate=f"지금 위치 %{{y:{fmt}}}<extra></extra>"))
+            fig.update_yaxes(tickformat=fmt)
+            spark(fig, note)
+
+        with m[0]:
+            frontier_spark("Return", ".0%", "프론티어 왼쪽(MVP) → 오른쪽")
+        with m[1]:
+            frontier_spark("Volatility", ".0%", "기대수익이 오를수록 위험도 커짐")
+        with m[2]:
+            frontier_spark("Sharpe", ".2f", "꼭대기 = 최대샤프 지점")
+        with m[3]:
+            fig = go.Figure(go.Scatter(x=dd.index, y=dd, mode="lines", fill="tozeroy",
+                                       line=dict(color="#e34948", width=1.5), fillcolor="rgba(227,73,72,0.15)",
+                                       hovertemplate="%{x|%Y.%m.%d}<br>낙폭 %{y:.1%}<extra></extra>"))
+            t_min = dd.idxmin()
+            fig.add_trace(go.Scatter(x=[t_min], y=[dd.min()], mode="markers", cliponaxis=False,
+                                     marker=dict(size=9, color="#e34948", line=dict(width=2, color="#fcfcfb")),
+                                     hovertemplate="최대낙폭 %{x|%Y.%m}<br>%{y:.1%}<extra></extra>"))
+            fig.update_yaxes(tickformat=".0%")
+            spark(fig, f"고점 대비 하락 · 최저 {t_min:%Y.%m}")
+        with m[4]:
+            fig = go.Figure(go.Bar(x=[str(y) for y in ann_my.index], y=ann_my,
+                                   marker=dict(color=["#2a78d6" if v >= 0 else "#e34948" for v in ann_my],
+                                               cornerradius=2),
+                                   hovertemplate="%{x}년 %{y:.1%}<extra></extra>"))
+            fig.update_yaxes(tickformat=".0%")
+            spark(fig, f"연도별 수익률 ({ann_my.index[0]}~{ann_my.index[-1]})")
+
         lo_ret, hi_ret = ft["Return"].iloc[0], ft["Return"].iloc[-1]
         st.caption(f"프론티어 범위: 기대수익률 {pct(lo_ret)} ~ {pct(hi_ret)} · 변동성 {pct(v_lo)} ~ {pct(v_hi)} · "
                    f"프론티어 위 위치 {my_pos:.2f} (0 = MVP, 1 = 끝)")
@@ -255,7 +307,7 @@ with st.container():
                                  hovertemplate="내 포트폴리오<br>수익률 %{y:.2%} · 변동성 %{x:.2%}<extra></extra>"))
         fig.update_xaxes(title="변동성 (연)", tickformat=".0%")
         fig.update_yaxes(title="기대수익률 (연)", tickformat=".0%")
-        st.plotly_chart(fig_layout(fig, 430), width="stretch")
+        st.plotly_chart(fig_layout(fig, 430), width="stretch", config={"displayModeBar": False})
 
     with g2:
         st.markdown("**추천 투자비중**")
@@ -270,8 +322,8 @@ with st.container():
         for c, col in CLASS_COLOR.items():
             fig.add_trace(go.Bar(x=[None], y=[None], marker_color=col, name=c, showlegend=True))
         fig.update_yaxes(autorange="reversed")
-        fig.update_xaxes(tickformat=".0%", range=[0, min(1.0, shown["weight"].max() * 1.25)])
-        fig_layout(fig, 60 + 34 * len(shown), bargap=0.35, showlegend=True)
+        fig.update_xaxes(tickformat=".0%", range=[0, shown["weight"].max() * 1.3])
+        fig_layout(fig, max(150, 70 + 34 * len(shown)), bargap=0.35, showlegend=True)
         st.plotly_chart(fig, width="stretch")
         rest = len(tbl) - len(shown)
         if rest:
