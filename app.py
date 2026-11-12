@@ -167,14 +167,9 @@ with st.sidebar:
                              value=10_000_000 if cur == "KRW" else 10_000,
                              step=1_000_000 if cur == "KRW" else 1_000)
     st.divider()
-    # ---- 데이터 기준일과 업데이트: 마지막 가격이 STALE_DAYS보다 오래되면 버튼을 띄움
+    # ---- 데이터 업데이트: 누르면 최신 가격으로 다시 받고 모든 값을 다시 계산
     st.subheader("데이터")
-    last, old = data.last_date(market), data.days_old(market)
-    st.caption(f"기준일 **{last:%Y.%m.%d}** ({old}일 전) · Yahoo Finance 수정종가")
-    stale = any((data.days_old(m) or 999) >= config.STALE_DAYS for m in config.MARKETS)
-    if stale:
-        st.warning(f"가격 데이터가 {config.STALE_DAYS}일 넘게 지났습니다.", icon="📅")
-    if st.button("최신 데이터로 업데이트", type="primary" if stale else "secondary", width="stretch",
+    if st.button("최신 데이터로 업데이트", width="stretch",
                  help="세 투자 대상의 가격을 어제 종가까지 다시 받고, 프론티어와 과거 성과를 모두 다시 계산합니다 "
                       "(1~2분). 계산이 다 끝나야 저장되므로 중간에 실패해도 기존 데이터는 그대로입니다."):
         import build_data

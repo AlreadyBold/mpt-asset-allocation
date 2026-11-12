@@ -66,7 +66,3 @@ def last_date(market: str) -> pd.Timestamp | None:
         tail = f.read().decode("utf-8", errors="ignore").strip().splitlines()[-1]
     return pd.Timestamp(tail.split(",")[0])
 
-
-def days_old(market: str) -> int | None:
-    d = last_date(market)
-    return None if d is None else (pd.Timestamp.today().normalize() - d.normalize()).days
