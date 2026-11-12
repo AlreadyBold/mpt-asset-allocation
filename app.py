@@ -18,6 +18,24 @@ from core.frontier import (max_diversification, max_sharpe, min_variance, portf_
 
 st.set_page_config(page_title="MPT 포트폴리오 추천", page_icon="📈", layout="wide")
 
+# 상단 고정 영역(설문 머리말, 대시보드 머리말)과 네비게이션 버튼 스타일.
+# Streamlit은 st.container 바깥에 같은 높이의 상자(stLayoutWrapper)를 하나 더 씌워서,
+# sticky를 그 바깥 상자에 걸어야 스크롤해도 위에 붙어 있음
+st.html("""<style>
+  [data-testid="stLayoutWrapper"]:has(> .st-key-survey_head),
+  [data-testid="stLayoutWrapper"]:has(> .st-key-dash_head) {
+    position: sticky; top: 3.75rem; z-index: 990; background: #fcfcfb;
+    border-bottom: 1px solid #e1e0d9; padding-bottom: 0.25rem; }
+  .st-key-dash_head h1 { font-size: 2rem; padding: 0.25rem 0 0; }
+  .navbar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin: 0.1rem 0 0.2rem; }
+  .navbar a { padding: 0.3rem 0.9rem; border: 1px solid #c3c2b7; border-radius: 999px; background: #fff;
+              color: #0b0b0b; text-decoration: none; font-size: 0.9rem; }
+  .navbar a:hover { border-color: #2a78d6; color: #2a78d6; background: #eef4fc; }
+  .navbar .meta { margin-left: auto; color: #52514e; font-size: 0.85rem; }
+  /* 버튼으로 이동했을 때 섹션 제목이 고정 머리말 아래에 가려지지 않게 */
+  [data-testid="stHeadingWithActionElements"] h2[id] { scroll-margin-top: 15rem !important; }
+</style>""")
+
 # ---------------------------------------------------------------- 스타일 상수
 INK, INK2, MUTED, GRID, AXIS = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
 # 자산군(ETF) / 업종(개별 종목) 색: 종목 목록에 나오는 순서대로 고정 순서 팔레트를 배정
@@ -102,12 +120,14 @@ ss.setdefault("answers", [None] * len(survey.QUESTIONS))
 
 if ss.page == "survey":
     _, mid, _ = st.columns([1, 3, 1])
+    # 제목·설명·진행 막대는 스크롤해도 화면 위에 붙어 있게 함 (몇 문항 남았는지 계속 보이도록)
     with mid:
-        st.title("내 성향에 맞는 효율적 포트폴리오")
-        st.write("7개 질문에 답하면 투자성향을 진단하고, 그 성향에 맞는 효율적 포트폴리오(ETF·주식 투자비중)를 추천합니다.")
-        answers = [ss.get(f"q{i}") for i in range(len(survey.QUESTIONS))]
-        n_done = sum(a is not None for a in answers)
-        st.progress(n_done / 7, text=f"{n_done} / 7 문항 응답")
+        with st.container(key="survey_head"):
+            st.title("내 성향에 맞는 효율적 포트폴리오")
+            st.write("7개 질문에 답하면 투자성향을 진단하고, 그 성향에 맞는 효율적 포트폴리오(ETF·주식 투자비중)를 추천합니다.")
+            answers = [ss.get(f"q{i}") for i in range(len(survey.QUESTIONS))]
+            n_done = sum(a is not None for a in answers)
+            st.progress(n_done / 7, text=f"{n_done} / 7 문항 응답")
         for i, (q, opts) in enumerate(survey.QUESTIONS):
             prev = ss.answers[i]
             st.radio(f"**Q{i + 1}. {q}**", opts, index=None if prev is None else prev, key=f"q{i}",
@@ -245,17 +265,20 @@ def money_obj(x: float) -> str:
 
 
 # ---------------------------------------------------------------- 상단: 위험 수준 조절
-st.title(f"{ptype}에게 추천하는 포트폴리오")
-st.caption(f"설문 점수 {score}점 · 투자 대상: **{config.MARKETS[market]['label']}** · 바로가기: "
-           "[추천 비중](#recommend) · [과거 성과](#history) · [위험 조절 원리](#frontier) · "
-           "[다른 방법과 비교](#compare) · [자세히 보기](#details)")
-
+# 제목·섹션 이동 버튼·위험 수준 슬라이더는 스크롤해도 화면 위에 붙어 있음 (어디서든 바로 이동·조절)
+NAV = [("recommend", "추천 비중"), ("history", "과거 성과"), ("frontier", "위험 조절 원리"),
+       ("compare", "다른 방법과 비교"), ("details", "자세히 보기")]
 rets_labels = [f"{r * 100:.1f}%" for r in ft["Return"]]
 rets_labels = [f"{l} ({i})" if rets_labels.count(l) > 1 else l for i, l in enumerate(rets_labels)]
-sel_label = st.select_slider(
-    "위험 수준 조절 · 왼쪽으로 갈수록 안정적, 오른쪽으로 갈수록 공격적 (표시 값 = 1년 기대 수익률)",
-    options=rets_labels, value=rets_labels[default_row], key=f"slider_{market}_{cap}_{score}_{data.last_date(market):%Y%m%d}",
-    help="처음 위치는 설문 점수로 정해집니다. 효율적 프론티어 위 100개 지점을 미리 계산해 두고 가장 가까운 지점을 보여줍니다.")
+with st.container(key="dash_head"):
+    st.title(f"{ptype}에게 추천하는 포트폴리오", anchor=False)
+    st.html('<nav class="navbar">' + "".join(f'<a href="#{k}">{v}</a>' for k, v in NAV)
+            + f'<span class="meta">설문 {score}점 · {config.MARKETS[market]["label"]}</span></nav>')
+    sel_label = st.select_slider(
+        "위험 수준 조절 · 왼쪽으로 갈수록 안정적, 오른쪽으로 갈수록 공격적 (표시 값 = 1년 기대 수익률)",
+        options=rets_labels, value=rets_labels[default_row],
+        key=f"slider_{market}_{cap}_{score}_{data.last_date(market):%Y%m%d}",
+        help="처음 위치는 설문 점수로 정해집니다. 효율적 프론티어 위 100개 지점을 미리 계산해 두고 가장 가까운 지점을 보여줍니다.")
 row = rets_labels.index(sel_label)
 P = ft.iloc[row]
 w_my = P[names].astype(float)
