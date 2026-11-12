@@ -32,8 +32,17 @@ st.html("""<style>
               color: #0b0b0b; text-decoration: none; font-size: 0.9rem; }
   .navbar a:hover { border-color: #2a78d6; color: #2a78d6; background: #eef4fc; }
   .navbar .meta { margin-left: auto; color: #52514e; font-size: 0.85rem; }
-  /* 버튼으로 이동했을 때 섹션 제목이 고정 머리말 아래에 가려지지 않게 */
-  [data-testid="stHeadingWithActionElements"] h2[id] { scroll-margin-top: 15rem !important; }
+  /* 섹션 대제목: 고정 머리말 바로 아래에 붙어 있다가, 다음 대제목이 올라오면 자리를 넘겨줌.
+     --dash-head-bottom(머리말 아래 끝 위치)은 아래 스크립트가 실제 높이를 재서 넣음 */
+  [data-testid="stElementContainer"]:has(h2#recommend), [data-testid="stElementContainer"]:has(h2#history),
+  [data-testid="stElementContainer"]:has(h2#frontier), [data-testid="stElementContainer"]:has(h2#compare),
+  [data-testid="stElementContainer"]:has(h2#details) {
+    position: sticky; top: var(--dash-head-bottom, 14rem); z-index: 980; background: #fcfcfb; }
+  /* 네비 버튼은 제목이 아니라 제목 바로 앞의 '고정되지 않는 표식'으로 이동함.
+     제목 자체는 sticky라 이미 지나간 섹션 제목이 머리말 아래에 붙어 있어서, 제목으로 이동하면
+     브라우저가 '이미 보인다'고 보고 위로 올라가지 않았음 */
+  .sec-anchor { scroll-margin-top: var(--dash-head-bottom, 15rem); }
+  [data-testid="stElementContainer"]:has(.sec-anchor) { margin-bottom: -1rem; }
 </style>""")
 
 # ---------------------------------------------------------------- 스타일 상수
@@ -272,13 +281,25 @@ rets_labels = [f"{r * 100:.1f}%" for r in ft["Return"]]
 rets_labels = [f"{l} ({i})" if rets_labels.count(l) > 1 else l for i, l in enumerate(rets_labels)]
 with st.container(key="dash_head"):
     st.title(f"{ptype}에게 추천하는 포트폴리오", anchor=False)
-    st.html('<nav class="navbar">' + "".join(f'<a href="#{k}">{v}</a>' for k, v in NAV)
+    st.html('<nav class="navbar">' + "".join(f'<a href="#sec-{k}">{v}</a>' for k, v in NAV)
             + f'<span class="meta">설문 {score}점 · {config.MARKETS[market]["label"]}</span></nav>')
     sel_label = st.select_slider(
         "위험 수준 조절 · 왼쪽으로 갈수록 안정적, 오른쪽으로 갈수록 공격적 (표시 값 = 1년 기대 수익률)",
         options=rets_labels, value=rets_labels[default_row],
         key=f"slider_{market}_{cap}_{score}_{data.last_date(market):%Y%m%d}",
         help="처음 위치는 설문 점수로 정해집니다. 효율적 프론티어 위 100개 지점을 미리 계산해 두고 가장 가까운 지점을 보여줍니다.")
+# 고정 머리말의 실제 높이를 재서 CSS 변수로 넣음 (화면 폭에 따라 네비 버튼 줄 수가 달라 높이가 바뀜).
+# 섹션 대제목이 이 위치에 붙고, 버튼으로 이동할 때도 이만큼 띄움
+components.html("""<script>
+  const d = window.parent.document;
+  function upd() {
+    const h = d.querySelector('[data-testid="stLayoutWrapper"]:has(> .st-key-dash_head)');
+    if (!h) return;
+    const top = parseFloat(window.parent.getComputedStyle(h).top) || 60;
+    d.documentElement.style.setProperty('--dash-head-bottom', (top + h.offsetHeight) + 'px');
+  }
+  upd(); setInterval(upd, 500);
+</script>""", height=0)
 row = rets_labels.index(sel_label)
 P = ft.iloc[row]
 w_my = P[names].astype(float)
@@ -295,6 +316,7 @@ tbl = assets.assign(weight=w_my).sort_values("weight", ascending=False)
 held = tbl[tbl["weight"] >= 0.0005]
 
 # ================================================================ 1. 추천 비중
+st.html('<div id="sec-recommend" class="sec-anchor"></div>')
 st.header(f"{money_obj(amount)} 이렇게 나눠 담으세요",
           anchor="recommend", divider="gray")
 c1, c2, c3 = st.columns([1.1, 1.4, 2.2], gap="large")
@@ -354,6 +376,7 @@ summary_md = (f"{money_obj(amount)} 투자하면 1년 뒤 평균 **{money(amount
 st.info(f"**한 줄 요약** · {summary_md}")
 
 # ================================================================ 2. 과거 성과
+st.html('<div id="sec-history" class="sec-anchor"></div>')
 st.header("과거에 이렇게 투자했다면", anchor="history", divider="gray")
 years = st.segmented_control("언제 투자를 시작했다면?", [10, 5, 3, 1], default=10, key="period",
                              format_func=lambda y: f"{y}년 전") or 10
@@ -400,6 +423,7 @@ with h2:
                f"(첫해는 {win.index[0]:%m월}부터, {ann_w.index[-1]}년은 {win.index[-1]:%m월 %d일}까지)")
 
 # ================================================================ 3. 위험 조절 원리 (효율적 프론티어)
+st.html('<div id="sec-frontier" class="sec-anchor"></div>')
 st.header("위험을 올리면 무엇이 바뀌나", anchor="frontier", divider="gray")
 st.markdown("곡선 위의 점 하나하나는 **같은 위험에서 수익이 가장 높은 조합**(효율적 프론티어)입니다. "
             "오른쪽으로 갈수록 기대 수익과 흔들림이 함께 커집니다. 파란 점이 지금 추천, 배경색이 성향 구간입니다.")
@@ -456,6 +480,7 @@ with g2:
     st.plotly_chart(fig_layout(fig, 420, hovermode="x unified"), width="stretch", config={"displayModeBar": False})
 
 # ================================================================ 4. 다른 방법과 비교
+st.html('<div id="sec-compare" class="sec-anchor"></div>')
 st.header("다른 투자 방법과 비교하면", anchor="compare", divider="gray")
 st.markdown(f"위에서 고른 기간({win.index[0]:%Y.%m}~{win.index[-1]:%Y.%m}) 동안 {money_obj(amount)} 각 방법으로 투자했을 때입니다. "
             "**최종 금액은 클수록, 최대 하락은 작을수록** 좋습니다.")
@@ -495,6 +520,7 @@ with st.expander("각 방법은 무엇인가요?"):
         "그래서 이 서비스는 설문 점수에 맞는 위험 수준을 추천하고, 최대샤프는 비교용으로만 보여줍니다.")
 
 # ================================================================ 5. 자세히 보기 (전문 지표는 접어 둠)
+st.html('<div id="sec-details" class="sec-anchor"></div>')
 st.header("자세히 보기", anchor="details", divider="gray")
 st.caption("수업에서 다룬 지표와 계산 근거입니다. 필요할 때 펼쳐 보세요.")
 
