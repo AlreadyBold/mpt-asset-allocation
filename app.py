@@ -19,7 +19,8 @@ st.set_page_config(page_title="MPT 포트폴리오 추천", page_icon="📈", la
 
 # ---------------------------------------------------------------- 스타일 상수
 INK, INK2, MUTED, GRID, AXIS = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
-CLASS_COLOR = {"주식": "#2a78d6", "채권": "#eb6834", "부동산": "#1baf7a", "실물": "#eda100"}
+# 자산군(ETF) / 업종(개별 종목) 색: 종목 목록에 나오는 순서대로 고정 순서 팔레트를 배정
+PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 MODEL_COLOR = {"내 포트폴리오": "#2a78d6", "MVP": "#eb6834", "최대샤프": "#1baf7a",
                "RP": "#eda100", "MD": "#e87ba4", "EW": MUTED}
 TYPE_FILL = {"안정추구형": "rgba(27,175,122,0.10)", "위험중립형": "rgba(237,161,0,0.12)",
@@ -40,7 +41,7 @@ GLOSSARY = {
     "최대샤프": "샤프비율이 가장 큰 조합. 기대수익률 추정에 민감해 참고용으로만 표시",
     "RP (리스크 패리티)": "자산마다 포트폴리오 위험을 똑같이 나눠 지게 만든 조합",
     "MD (최대분산)": "분산비율(개별 변동성 합 ÷ 포트폴리오 변동성)을 최대로 만든 조합",
-    "EW (동일비중)": "10개 ETF에 10%씩. 최적화 모형이 넘어야 할 벤치마크",
+    "EW (동일비중)": "모든 종목에 같은 비중(10종이면 10%씩). 최적화 모형이 넘어야 할 벤치마크",
     "위험기여도": "포트폴리오 전체 변동성 중 각 자산이 만들어 낸 몫",
     "리밸런싱": "정해진 주기(매년 말)마다 비중을 다시 계산해 맞추는 것",
 }
@@ -94,7 +95,7 @@ if ss.page == "survey":
     _, mid, _ = st.columns([1, 3, 1])
     with mid:
         st.title("내 성향에 맞는 효율적 포트폴리오")
-        st.write("7개 질문에 답하면 투자성향을 진단하고, 그 성향에 맞는 효율적 포트폴리오(ETF 투자비중)를 추천합니다.")
+        st.write("7개 질문에 답하면 투자성향을 진단하고, 그 성향에 맞는 효율적 포트폴리오(ETF·주식 투자비중)를 추천합니다.")
         answers = [ss.get(f"q{i}") for i in range(len(survey.QUESTIONS))]
         n_done = sum(a is not None for a in answers)
         st.progress(n_done / 7, text=f"{n_done} / 7 문항 응답")
@@ -141,7 +142,7 @@ with st.sidebar:
     st.divider()
     st.header("설정")
     market = st.radio("투자 대상", list(config.MARKETS), format_func=lambda m: config.MARKETS[m]["label"],
-                      help="미국 상장 ETF는 해외주식 계좌로, 한국 상장 ETF는 국내 계좌·연금·ISA에서 살 수 있다")
+                      help="ETF 버전은 주식·채권·리츠·금 등 자산군을 고르게 담고, 대형주 버전은 한국·미국 개별 종목 20개(원화 기준)로 구성한다. 미국 상장은 해외주식 계좌, 한국 상장은 국내 계좌에서 살 수 있다")
     cap_on = st.toggle("자산별 비중 상한 40%", value=False,
                        help="한 자산에 비중이 몰리는 것(코너해)을 막는다. 추천 비중과 백테스트 모두에 적용")
     cap = 0.4 if cap_on else 1.0
@@ -157,6 +158,9 @@ D = load(market)
 assets = config.asset_table(market)
 ft = D["frontier"][cap]
 names = list(assets.index)
+IS_STOCK = market == "STOCK"
+UNIT, CLASS_LABEL = ("종목", "시장") if IS_STOCK else ("ETF", "자산군")
+CLASS_COLOR = {c: PALETTE[i] for i, c in enumerate(dict.fromkeys(assets["class"]))}
 
 # 성향 -> 프론티어 위치 (변동성 기준 0~1) -> 가장 가까운 프론티어 지점
 v_lo, v_hi = ft["Volatility"].iloc[0], ft["Volatility"].iloc[-1]
@@ -287,7 +291,7 @@ with st.container():
         fig.add_trace(go.Scatter(x=st_["Volatility"], y=st_["Return"], mode="markers+text", text=st_.index,
                                  textposition="top center", textfont=dict(size=11, color=MUTED),
                                  marker=dict(size=8, color=MUTED, line=dict(width=2, color="#fcfcfb")),
-                                 name="개별 ETF", hovertemplate="%{text}<br>수익률 %{y:.1%} · 변동성 %{x:.1%}<extra></extra>"))
+                                 name=f"개별 {UNIT}", hovertemplate="%{text}<br>수익률 %{y:.1%} · 변동성 %{x:.1%}<extra></extra>"))
         fig.add_trace(go.Scatter(x=ft["Volatility"], y=ft["Return"], mode="lines", line=dict(color=INK, width=2),
                                  name="효율적 프론티어", customdata=ft["Sharpe"],
                                  hovertemplate="수익률 %{y:.2%} · 변동성 %{x:.2%} · 샤프 %{customdata:.2f}<extra></extra>"))
@@ -331,15 +335,15 @@ with st.container():
         by_class = tbl.groupby("class", sort=False)["weight"].sum()
         st.caption(" · ".join(f"{c} {pct(by_class.get(c, 0))}" for c in CLASS_COLOR))
 
-    with st.expander(f"투자금 {amount:,.0f}{'원' if cur == 'KRW' else '달러'} 기준 ETF별 매수 금액", expanded=True):
+    with st.expander(f"투자금 {amount:,.0f}{'원' if cur == 'KRW' else '달러'} 기준 {UNIT}별 매수 금액", expanded=True):
         buy = tbl[tbl["weight"] >= 0.0005].assign(금액=lambda d: d["weight"] * amount)
         st.dataframe(
             buy.reset_index()[["name", "ticker", "class", "desc", "weight", "금액"]]
-            .rename(columns={"name": "ETF", "ticker": "티커", "class": "자산군", "desc": "설명", "weight": "비중"})
+            .rename(columns={"name": UNIT, "ticker": "티커", "class": CLASS_LABEL, "desc": "설명", "weight": "비중"})
             .style.format({"비중": "{:.1%}", "금액": "{:,.0f}"}),
             hide_index=True, width="stretch")
 
-    st.markdown("**기대수익률에 따른 자산군 비중 변화** (교수님 자료의 '기대수익률에 해당하는 자산별 비중')")
+    st.markdown(f"**기대수익률에 따른 {CLASS_LABEL} 비중 변화** (교수님 자료의 '기대수익률에 해당하는 자산별 비중')")
     cls_w = ft[names].T.groupby(assets["class"]).sum().T
     fig = go.Figure()
     for c in CLASS_COLOR:
@@ -380,12 +384,12 @@ with st.container():
     with a:
         st.markdown("**투자비중**")
         st.dataframe(W.style.format("{:.1%}").background_gradient(cmap="Blues", vmin=0, vmax=1),
-                     width="stretch", height=390)
+                     width="stretch", height=38 + 35 * len(names))
     with b:
         st.markdown("**위험기여도** (전체 변동성 중 각 자산이 만든 몫)", help=GLOSSARY["위험기여도"])
         RC = W.apply(lambda c: pd.Series(risk_contribution(c.to_numpy(), cov_), index=names))
         st.dataframe(RC.style.format("{:.1%}").background_gradient(cmap="Oranges", vmin=0, vmax=1),
-                     width="stretch", height=390)
+                     width="stretch", height=38 + 35 * len(names))
     st.info(
         "**최대샤프를 추천에 쓰지 않는 이유**  \n"
         "최대샤프는 이론상 위험 대비 가장 효율적인 지점이지만, 입력하는 기대수익률의 작은 오차에도 비중이 "
@@ -477,7 +481,7 @@ with st.container():
     fig.update_yaxes(tickformat=".0%", range=[0, 1])
     fig.update_xaxes(title="보유 연도")
     st.plotly_chart(fig_layout(fig, 320, barmode="stack", bargap=0.3), width="stretch")
-    with st.expander("ETF별 연도별 비중 표"):
+    with st.expander(f"{UNIT}별 연도별 비중 표"):
         st.dataframe(wl.set_index(wl.index.year + 1).rename_axis("보유 연도").style.format("{:.0%}")
                      .background_gradient(cmap="Blues", vmin=0, vmax=1), width="stretch")
 
@@ -487,8 +491,8 @@ with st.container():
     s = D["stats"]
     info = assets.assign(기대수익률=s["Return"], 변동성=s["Volatility"], 샤프=s["Return"] / s["Volatility"])
     r = D["returns"]
-    st.markdown(f"**투자 대상 ETF 10종** ({r.index[0]:%Y.%m.%d} ~ {r.index[-1]:%Y.%m.%d} 전체기간, 연율화)")
-    st.dataframe(info.reset_index().rename(columns={"name": "ETF", "ticker": "티커", "class": "자산군", "desc": "설명"})
+    st.markdown(f"**투자 대상 {config.MARKETS[market]['label']}** ({r.index[0]:%Y.%m.%d} ~ {r.index[-1]:%Y.%m.%d} 전체기간, 연율화)")
+    st.dataframe(info.reset_index().rename(columns={"name": UNIT, "ticker": "티커", "class": CLASS_LABEL, "desc": "설명"})
                  .style.format({"기대수익률": "{:.1%}", "변동성": "{:.1%}", "샤프": "{:.2f}"}),
                  hide_index=True, width="stretch")
     a, b = st.columns([3, 2], gap="large")
@@ -502,7 +506,7 @@ with st.container():
                      width="stretch", height=390)
     with st.expander("계산 방법과 가정"):
         st.markdown(f"""
-- **데이터**: Yahoo Finance(yfinance) 수정종가(배당·분할 반영), 10개 ETF 모두 가격이 있는 공통 거래일만 사용
+- **데이터**: Yahoo Finance(yfinance) 수정종가(배당·분할 반영), 모든 종목 가격이 있는 공통 거래일만 사용
 - **프론티어**: 일별수익률 평균·공분산 × {config.ANNUAL}으로 연율화, 비중 0 ≤ w ≤ 1(상한 옵션 시 0.4), 합 1, 공매도·레버리지 없음.
   MVP부터 최고 수익률까지 {config.N_FRONTIER}개 지점을 미리 계산해 두고 슬라이더는 가장 가까운 지점을 보여줌
 - **성향 → 위치**: 설문 점수(7~35점)를 0~1로 바꿔 변동성 기준 프론티어 위치로 사용. 10.5점, 24.5점이 성향 경계
@@ -510,6 +514,9 @@ with st.container():
   리밸런싱 날 종가까지의 정보만 사용(미래 정보 없음). 모형은 수업 quant_model_modules, 기준가는 cal_nav로 계산
 - **샤프비율**: 무위험수익률 0 가정
 - **한국 상장 ETF**: 대부분 환헤지(H)·선물형 상품. 10종 공통 데이터가 2014.05부터라 백테스트는 2017년 말부터
+- **대형주 20종목**: 한국 10 + 미국 10. 미국 주식은 원/달러 환율을 곱해 원화 기준으로 계산(환율 변동 포함).
+  채권·금 같은 위험을 낮춰 줄 자산이 없어 MVP도 변동성이 높다. NAVER 분할(2013) 때 가격 데이터가 튀어서 2014년부터 사용,
+  백테스트는 2017년 말부터. 종목 선정 자체가 현재 대형주라 과거 성과가 좋게 보이는 생존편향이 있다
 """)
 
 st.divider()
