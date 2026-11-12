@@ -9,8 +9,8 @@
 - frontier_{시장}_cap{상한}.csv  전체기간 프론티어 100개 지점 (수익률, 변동성, 샤프, 비중)
 - stats_{시장}.csv           ETF별 연 기대수익률, 변동성
 - corr_{시장}.csv            상관계수
-- bt_nav_{시장}.csv          모형별 / 성향 위치별 기준가
-- bt_weights_{시장}.csv      리밸런싱 날짜별 비중 (long 형식)
+- bt_nav_{시장}_lb{기간}.csv      모형별 / 성향 위치별 기준가 (기간 = 추정에 쓴 직전 거래일 수 252, 756)
+- bt_weights_{시장}_lb{기간}.csv  리밸런싱 날짜별 비중 (long 형식)
 """
 import sys
 import time
@@ -41,18 +41,19 @@ def build(market: str, download: bool):
     pd.DataFrame({"Return": mu, "Volatility": np.sqrt(np.diag(cov))}).to_csv(data.DATA_DIR / f"stats_{market}.csv")
     r.corr().to_csv(data.DATA_DIR / f"corr_{market}.csv")
 
-    weights = bt.model_weights(r)
-    rebal = weights["MVP"].index
-    for cap in config.WEIGHT_CAPS:
-        for p, W in bt.position_weights(r, POSITIONS, rebal, cap).items():
-            weights[pos_key(p, cap)] = W
-
-    st = bt.start_date(rebal)
-    navs = pd.DataFrame({k: bt.run_nav(W, r, st) for k, W in weights.items()})
-    navs.round(4).to_csv(data.DATA_DIR / f"bt_nav_{market}.csv")
-
-    long = pd.concat({k: W.loc[st:] for k, W in weights.items()}, names=["model", "date"])
-    long.to_csv(data.DATA_DIR / f"bt_weights_{market}.csv")
+    st = None
+    for lb in sorted(config.LOOKBACKS, reverse=True):   # 가장 긴 기간부터: 시작일을 그 기준으로 통일
+        weights = bt.model_weights(r, lb)
+        rebal = weights["MVP"].index
+        for cap in config.WEIGHT_CAPS:
+            for p, W in bt.position_weights(r, POSITIONS, rebal, cap, lb).items():
+                weights[pos_key(p, cap)] = W
+        # 추정 기간이 달라도 같은 날부터 비교해야 공정함 -> 가장 긴 기간의 첫 리밸런싱 날짜를 공통 시작일로
+        st = st or bt.start_date(rebal)
+        navs = pd.DataFrame({k: bt.run_nav(W, r, st) for k, W in weights.items()})
+        navs.round(4).to_csv(data.DATA_DIR / f"bt_nav_{market}_lb{lb}.csv")
+        long = pd.concat({k: W.loc[st:] for k, W in weights.items()}, names=["model", "date"])
+        long.to_csv(data.DATA_DIR / f"bt_weights_{market}_lb{lb}.csv")
     print(f"[{market}] {px.index[0].date()}~{px.index[-1].date()}, 백테스트 {st.date()}~, {time.time() - t0:.1f}s")
 
 

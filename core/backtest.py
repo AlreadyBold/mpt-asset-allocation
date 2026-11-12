@@ -24,8 +24,9 @@ MODEL_DESC = {
 }
 
 
-def model_weights(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    lb, rb, fq = config.LOOKBACK, config.REBAL, config.BT_FREQ
+def model_weights(returns: pd.DataFrame, lb: int = config.LOOKBACK) -> dict[str, pd.DataFrame]:
+    """lb: 리밸런싱 때 쓰는 직전 거래일 수 (252 = 1년, 756 = 3년)."""
+    rb, fq = config.REBAL, config.BT_FREQ
     return {
         "MVP": qm.MeanVarianceMinVolatility(rb, returns, lb, frequency=fq),
         "최대샤프": qm.MeanVarianceMaxSharpe(rb, returns, lb, frequency=fq),
@@ -35,11 +36,12 @@ def model_weights(returns: pd.DataFrame) -> dict[str, pd.DataFrame]:
     }
 
 
-def position_weights(returns: pd.DataFrame, positions, rebal_index, cap: float = 1.0) -> dict[float, pd.DataFrame]:
+def position_weights(returns: pd.DataFrame, positions, rebal_index, cap: float = 1.0,
+                     lb: int = config.LOOKBACK) -> dict[float, pd.DataFrame]:
     """성향 위치별로 매년 말 프론티어 위 비중을 다시 계산."""
     out = {p: [] for p in positions}
     for t in rebal_index:
-        ext = returns.loc[:t].iloc[-config.LOOKBACK:]
+        ext = returns.loc[:t].iloc[-lb:]
         mu, cov = ext.mean().to_numpy() * config.ANNUAL, ext.cov().to_numpy() * config.ANNUAL
         for p in positions:
             out[p].append(weights_at_position(mu, cov, p, cap))
