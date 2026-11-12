@@ -73,8 +73,10 @@ def load(market: str):
         "stats": pd.read_csv(d / f"stats_{market}.csv", index_col=0),
         "corr": pd.read_csv(d / f"corr_{market}.csv", index_col=0),
         "frontier": {c: pd.read_csv(d / f"frontier_{market}_cap{c:.1f}.csv") for c in config.WEIGHT_CAPS},
-        "nav": pd.read_csv(d / f"bt_nav_{market}.csv", index_col=0, parse_dates=True),
-        "weights": pd.read_csv(d / f"bt_weights_{market}.csv", index_col=[0, 1], parse_dates=["date"]),
+        "nav": {lb: pd.read_csv(d / f"bt_nav_{market}_lb{lb}.csv", index_col=0, parse_dates=True)
+                for lb in config.LOOKBACKS},
+        "weights": {lb: pd.read_csv(d / f"bt_weights_{market}_lb{lb}.csv", index_col=[0, 1], parse_dates=["date"])
+                    for lb in config.LOOKBACKS},
         "mu": r.mean() * config.ANNUAL,
         "cov": r.cov() * config.ANNUAL,
     }
@@ -148,6 +150,12 @@ with st.sidebar:
     cap_on = st.toggle("자산별 비중 상한 40%", value=False,
                        help="한 자산에 비중이 몰리는 것(코너해)을 막는다. 추천 비중과 백테스트 모두에 적용")
     cap = 0.4 if cap_on else 1.0
+    lb = st.segmented_control(
+        "과거 성과 계산 때 쓰는 추정 기간", list(config.LOOKBACKS), default=config.LOOKBACK,
+        format_func=lambda x: f"직전 {config.LOOKBACKS[x]}", key="lookback",
+        help="과거 성과(백테스트)에서 매년 말 비중을 다시 계산할 때 직전 몇 년 데이터를 쓸지. "
+             "1년이면 지난해 성과를 그대로 따라가 비중이 한두 자산에 쏠리기 쉽다(특히 최대샤프). "
+             "추천 비중 자체는 전체기간 데이터로 계산해서 바뀌지 않는다") or config.LOOKBACK
     cur = config.MARKETS[market]["currency"]
     amount = st.number_input(f"투자금 ({'원' if cur == 'KRW' else '달러'})", min_value=0,
                              value=10_000_000 if cur == "KRW" else 10_000,
@@ -228,7 +236,7 @@ P = ft.iloc[row]
 w_my = P[names].astype(float)
 my_pos = float(P["pos"])
 bt_pos = round(round(my_pos / 0.05) * 0.05, 2)
-nav_all = D["nav"].rename(columns={pos_key(bt_pos, cap): "내 포트폴리오"})
+nav_all = D["nav"][lb].rename(columns={pos_key(bt_pos, cap): "내 포트폴리오"})
 my_nav = nav_all["내 포트폴리오"]
 my_dd = float((my_nav / my_nav.cummax() - 1).min())
 ann_my = bt.annual_returns(my_nav.to_frame("r"))["r"]
@@ -402,6 +410,11 @@ with b2:
     fig.update_yaxes(autorange="reversed", tickfont=dict(color=INK))
     fig.update_xaxes(visible=False, range=[0, (-mdd).max() * 1.3])
     st.plotly_chart(fig_layout(fig, 300, showlegend=False), width="stretch", config={"displayModeBar": False})
+rk_f = int(fin.rank(ascending=False)["최대샤프"])
+rk_m = int((-mdd).rank()["최대샤프"])
+st.caption(f"📌 사이드바 추정 기간 = 직전 {config.LOOKBACKS[lb]}: 효율 최고(최대샤프)는 {len(order)}개 방법 중 "
+           f"최종 금액 {rk_f}위, 최대 하락 {rk_m}위 (하락이 작을수록 1위). "
+           "추정 기간을 1년 ↔ 3년으로 바꿔 보면 최대샤프가 기대수익률 추정에 얼마나 민감한지 볼 수 있습니다.")
 with st.expander("각 방법은 무엇인가요?"):
     st.markdown("\n".join(f"- **{FRIENDLY[m]}**: {bt.MODEL_DESC[m]}" for m in MODELS))
     st.markdown(
@@ -465,7 +478,7 @@ with st.expander("방법별 투자 비중과 위험기여도"):
                      width="stretch", height=38 + 35 * len(names))
 
 with st.expander("내 포트폴리오의 연도별 비중 변화"):
-    wl = D["weights"].loc[pos_key(bt_pos, cap)]
+    wl = D["weights"][lb].loc[pos_key(bt_pos, cap)]
     wl = wl[wl.index <= nav_all.index[-1]]
     fig = go.Figure()
     for c in CLASS_COLOR:
@@ -477,7 +490,7 @@ with st.expander("내 포트폴리오의 연도별 비중 변화"):
     fig.update_yaxes(tickformat=".0%", range=[0, 1])
     fig.update_xaxes(title="보유 연도")
     st.plotly_chart(fig_layout(fig, 320, barmode="stack", bargap=0.3), width="stretch")
-    st.caption("매년 말 직전 3년 데이터로 같은 위험 수준의 비중을 다시 계산해 그다음 해에 보유합니다.")
+    st.caption(f"매년 말 직전 {config.LOOKBACKS[lb]} 데이터로 같은 위험 수준의 비중을 다시 계산해 그다음 해에 보유합니다.")
 
 with st.expander(f"투자 대상 {UNIT} 정보와 상관계수"):
     s = D["stats"]
