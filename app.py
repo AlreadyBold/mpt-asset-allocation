@@ -148,6 +148,9 @@ with st.sidebar:
     if st.button("설문 다시 하기", width="stretch"):
         ss.page = "survey"
         st.rerun()
+    # PDF 버튼 자리만 먼저 잡아 둠: 리포트에 필요한 값(과거 성과, 비교)은 화면 아래쪽에서 계산되므로
+    # 맨 끝에서 이 자리에 버튼을 넣는다
+    pdf_slot = st.container()
     st.divider()
     st.header("설정")
     market = st.radio("투자 대상", list(config.MARKETS), format_func=lambda m: config.MARKETS[m]["label"],
@@ -322,9 +325,10 @@ k[2].metric(f"과거 가장 나빴던 해 ({worst_year}년)", pct(ann_my.min()),
             help="같은 위험 수준으로 매년 말 비중을 다시 맞추며 투자했을 때(백테스트) 가장 나빴던 1년 수익률")
 k[3].metric("과거 최대 하락", pct(my_dd),
             help="고점에서 가장 많이 떨어졌던 폭(MDD). 이 정도 하락을 견딜 수 있는지 생각해 보세요.")
-st.info(f"**한 줄 요약** · {money_obj(amount)} 투자하면 1년 뒤 평균 **{money(amount * (1 + P['Return']))}** 정도를 기대할 수 있습니다. "
-        f"다만 {worst_year}년처럼 나쁜 해에는 **{pct(ann_my.min(), 0)}**({money(amount * ann_my.min())}) 손실이 날 수 있고, "
-        f"가장 크게 떨어졌을 때는 고점 대비 **{pct(my_dd, 0)}까지** 내려간 적이 있습니다.")
+summary_md = (f"{money_obj(amount)} 투자하면 1년 뒤 평균 **{money(amount * (1 + P['Return']))}** 정도를 기대할 수 있습니다. "
+              f"다만 {worst_year}년처럼 나쁜 해에는 **{pct(ann_my.min(), 0)}**({money(amount * ann_my.min())}) 손실이 날 수 있고, "
+              f"가장 크게 떨어졌을 때는 고점 대비 **{pct(my_dd, 0)}까지** 내려간 적이 있습니다.")
+st.info(f"**한 줄 요약** · {summary_md}")
 
 # ================================================================ 2. 과거 성과
 st.header("과거에 이렇게 투자했다면", anchor="history", divider="gray")
@@ -340,9 +344,10 @@ eq = eq / eq.iloc[0] * amount
 final, final_ew = eq["내 포트폴리오"].iloc[-1], eq["EW"].iloc[-1]
 yrs = (eq.index[-1] - eq.index[0]).days / 365.25
 cagr_txt = f"연평균 {pct((final / amount) ** (1 / yrs) - 1)}" if yrs >= 1.5 else f"수익률 {pct(final / amount - 1)}"
-st.markdown(f"**{eq.index[0]:%Y년 %m월}**에 {money_obj(amount)} 넣고 매년 말 비중을 다시 맞췄다면, "
-            f"**{eq.index[-1]:%Y년 %m월}**에는 **{money(final)}{'이' if cur == 'KRW' else '가'}** 됐습니다 "
-            f"({yrs:.1f}년, {cagr_txt}). 모두 같은 금액씩 나눠 담았다면 {money(final_ew)}입니다.")
+history_md = (f"**{eq.index[0]:%Y년 %m월}**에 {money_obj(amount)} 넣고 매년 말 비중을 다시 맞췄다면, "
+              f"**{eq.index[-1]:%Y년 %m월}**에는 **{money(final)}{'이' if cur == 'KRW' else '가'}** 됐습니다 "
+              f"({yrs:.1f}년, {cagr_txt}). 모두 같은 금액씩 나눠 담았다면 {money(final_ew)}입니다.")
+st.markdown(history_md)
 ann_w = bt.annual_returns(win[["내 포트폴리오"]])["내 포트폴리오"]
 if (win.index.year == ann_w.index[0]).sum() < 5:
     ann_w = ann_w.iloc[1:]
@@ -574,6 +579,39 @@ with st.expander("계산 방법과 가정"):
   채권·금 같은 위험을 낮춰 줄 자산이 없어 MVP도 변동성이 높다. NAVER 분할(2013) 때 가격 데이터가 튀어서 2014년부터 사용,
   백테스트는 2016년 말부터. 종목 선정 자체가 현재 대형주라 과거 성과가 좋게 보이는 생존편향이 있다
 """)
+
+# ================================================================ PDF 리포트 (사이드바 버튼)
+from core.report import ReportData, build_pdf  # noqa: E402
+
+win_summ = bt.summary(win[order] / win[order].iloc[0] * 100)
+report = ReportData(
+    market_label=config.MARKETS[market]["label"], money=money, amount=amount,
+    score=score, ptype=ptype, type_desc=survey.TYPES[ptype]["desc"], at_type=at_type,
+    answers=[(f"Q{i + 1}. {q}", f"{a + 1}번. {opts[a]}", survey.option_score(a))  # PDF 글꼴에 ①② 글자가 없음
+             for i, ((q, opts), a) in enumerate(zip(survey.QUESTIONS, ss.answers))],
+    data_period=(D["returns"].index[0], D["returns"].index[-1]),
+    holdings=held[["ticker", "class", "desc", "weight"]], class_weights=by_class, class_colors=CLASS_COLOR,
+    class_label=CLASS_LABEL, unit=UNIT,
+    exp_return=float(P["Return"]), volatility=float(P["Volatility"]),
+    worst_year=int(worst_year), worst_year_ret=float(ann_my.min()), max_drawdown=my_dd,
+    summary=summary_md.replace("**", ""), equity=eq, annual=ann_w, history_text=history_md.replace("**", ""),
+    compare=pd.DataFrame({"최종 금액": fin, "CAGR": win_summ["CAGR"], "샤프": win_summ["샤프"], "MDD": mdd})
+            .rename(index=FRIENDLY),
+    assumptions=[
+        "가격: Yahoo Finance 수정종가(배당·분할 반영). 모든 종목 가격이 있는 공통 거래일만 사용",
+        f"추천 비중: 전체기간 일별 수익률 평균·공분산 × {config.ANNUAL}으로 연율화한 효율적 프론티어 위의 지점. "
+        "비중 0~100%" + (", 자산별 상한 40%" if cap < 1 else "") + ", 공매도·레버리지 없음",
+        "성향 → 위치: 설문 점수(7~35점)에 비례해 프론티어 위 위험 수준(변동성)을 정함",
+        f"과거 성과: 매년 말 직전 {config.LOOKBACKS[lb]} 데이터로 비중을 다시 계산해 그다음 해에 보유, "
+        f"거래비용 {config.TRADE_COST * 1e4:.0f}bp, 그날 종가까지의 정보만 사용",
+        "샤프비율은 무위험수익률 0 가정. 세금·환전 수수료는 반영하지 않음",
+        "과거 성과는 미래 수익을 보장하지 않습니다. 이 리포트는 수업 프로젝트용 프로토타입이며 투자 권유가 아닙니다.",
+    ],
+)
+pdf_slot.download_button(
+    "📄 PDF 리포트 받기", data=lambda: build_pdf(report), mime="application/pdf", width="stretch",
+    file_name=f"MPT_리포트_{ptype}_{pd.Timestamp.today():%Y%m%d}.pdf",
+    help="지금 화면의 투자 대상·위험 수준·시작 시점·투자금 그대로 리포트를 만듭니다 (누를 때 생성, 몇 초 걸림)")
 
 st.divider()
 st.caption("⚠️ 이 화면은 수업 프로젝트용 프로토타입입니다. 과거 성과는 미래 수익을 보장하지 않으며, 투자 권유가 아닙니다.")
