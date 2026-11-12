@@ -16,10 +16,16 @@ def download_prices(market: str) -> pd.DataFrame:
     import yfinance as yf
 
     tks = config.tickers(market)
-    raw = yf.download(tks, start=config.START, end=config.END, auto_adjust=True, progress=False)
+    raw = yf.download(tks, start=config.MARKETS[market].get("start", config.START), end=config.END, auto_adjust=True, progress=False)
     px = raw["Close"][tks]
+    if config.MARKETS[market].get("usd_to_krw"):
+        # 미국 종목(.KS가 아닌 티커) 가격에 원/달러 환율을 곱해 원화 기준으로 바꿈
+        fx = yf.download("KRW=X", start=px.index[0], end=config.END, auto_adjust=True, progress=False)["Close"].iloc[:, 0]
+        fx = fx.reindex(px.index).ffill()
+        us = [t for t in tks if not t.endswith(".KS")]
+        px[us] = px[us].mul(fx, axis=0)
     px.columns = config.names(market)
-    # 공통 거래일만 사용: 모든 ETF 가격이 있는 첫날부터, 중간 결측은 직전 값으로 최대 5일 채움
+    # 공통 거래일만 사용: 모든 종목 가격이 있는 첫날부터, 중간 결측은 직전 값으로 최대 5일 채움
     px = px.loc[px.notna().all(axis=1).idxmax():].ffill(limit=5).dropna()
     DATA_DIR.mkdir(exist_ok=True)
     px.to_csv(price_path(market))
