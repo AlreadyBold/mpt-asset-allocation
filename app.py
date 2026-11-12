@@ -27,9 +27,9 @@ MODEL_COLOR = {"내 포트폴리오": "#2a78d6", "MVP": "#eb6834", "최대샤프
 TYPE_FILL = {"안정추구형": "rgba(27,175,122,0.10)", "위험중립형": "rgba(237,161,0,0.12)",
              "공격추구형": "rgba(227,73,72,0.10)"}
 MODELS = ["MVP", "최대샤프", "RP", "MD", "EW"]
-STRESS = [("2018년 4분기 급락", "2018-09-20", "2018-12-24"),
-          ("코로나 폭락 (2020)", "2020-02-19", "2020-03-23"),
-          ("금리 급등 (2022)", "2022-01-03", "2022-10-14")]
+STRESS = [("2018 4분기 급락", "2018-09-20", "2018-12-24"),
+          ("2020 코로나 폭락", "2020-02-19", "2020-03-23"),
+          ("2022 금리 급등", "2022-01-03", "2022-10-14")]
 GLOSSARY = {
     "기대수익률": "과거 일별수익률 평균 × 250. 1년에 평균적으로 기대할 수 있는 수익률",
     "변동성": "일별수익률 표준편차 × √250. 수익률이 얼마나 출렁이는지, 위험의 기본 척도",
@@ -467,9 +467,11 @@ with st.container():
         for name, s, e in STRESS:
             seg = navs.loc[s:e]
             if len(seg) > 1:
-                rows[f"{name} {s[2:7].replace('-', '.')}~{e[2:7].replace('-', '.')}"] = seg.iloc[-1] / seg.iloc[0] - 1
+                rows[name] = seg.iloc[-1] / seg.iloc[0] - 1
         if rows:
-            st.dataframe(pd.DataFrame(rows).T.style.format("{:.1%}"), width="stretch")
+            # 모형을 행, 구간을 열로 둬야 절반 폭에서도 열이 잘리지 않음
+            st.dataframe(pd.DataFrame(rows).style.format("{:.1%}"), width="stretch")
+            st.caption(" · ".join(f"{n}: {a[2:].replace('-', '.')} – {b[2:].replace('-', '.')}" for n, a, b in STRESS))
     with b:
         st.markdown("**연도별 수익률**")
         ann = bt.annual_returns(navs)
@@ -507,16 +509,22 @@ with st.container():
     st.markdown(f"**투자 대상 {config.MARKETS[market]['label']}** ({r.index[0]:%Y.%m.%d} ~ {r.index[-1]:%Y.%m.%d} 전체기간, 연율화)")
     st.dataframe(info.reset_index().rename(columns={"name": UNIT, "ticker": "티커", "class": CLASS_LABEL, "desc": "설명"})
                  .style.format({"기대수익률": "{:.1%}", "변동성": "{:.1%}", "샤프": "{:.2f}"}),
-                 hide_index=True, width="stretch")
-    a, b = st.columns([3, 2], gap="large")
-    with a:
-        st.markdown("**상관계수** (낮거나 음수일수록 분산효과가 크다)")
-        st.dataframe(D["corr"].style.format("{:.2f}").background_gradient(cmap="RdBu", vmin=-1, vmax=1),
-                     width="stretch", height=390)
-    with b:
-        st.markdown("**용어 설명**")
-        st.dataframe(pd.DataFrame(GLOSSARY.items(), columns=["용어", "뜻"]), hide_index=True,
-                     width="stretch", height=390)
+                 hide_index=True, width="stretch", height=38 + 35 * len(info))
+    # 상관계수는 표 대신 전체 폭 히트맵: 20종목이면 표가 가로·세로로 잘렸음
+    st.markdown("**상관계수** (낮거나 음수일수록 분산효과가 크다)")
+    corr = D["corr"]
+    n_c = len(corr)
+    fig = go.Figure(go.Heatmap(
+        z=corr.to_numpy(), x=list(corr.columns), y=list(corr.index), zmin=-1, zmax=1, zmid=0,
+        colorscale=[[0, "#c53030"], [0.5, "#f0efec"], [1, "#1c5cab"]], xgap=2, ygap=2,
+        texttemplate="%{z:.2f}", textfont=dict(size=12 if n_c <= 10 else 9),
+        hovertemplate="%{y} · %{x}<br>상관계수 %{z:.2f}<extra></extra>", colorbar=dict(thickness=10, len=0.8)))
+    fig.update_yaxes(autorange="reversed", showgrid=False)
+    fig.update_xaxes(side="top", showgrid=False, tickangle=-45 if n_c > 10 else 0)
+    st.plotly_chart(fig_layout(fig, 160 + 34 * n_c), width="stretch", config={"displayModeBar": False})
+    st.markdown("**용어 설명**")
+    st.dataframe(pd.DataFrame(GLOSSARY.items(), columns=["용어", "뜻"]), hide_index=True,
+                 width="stretch", height=38 + 35 * len(GLOSSARY))
     with st.expander("계산 방법과 가정"):
         st.markdown(f"""
 - **데이터**: Yahoo Finance(yfinance) 수정종가(배당·분할 반영), 모든 종목 가격이 있는 공통 거래일만 사용
