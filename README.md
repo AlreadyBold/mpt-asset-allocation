@@ -3,7 +3,7 @@
 투자성향 설문 → 효율적 프론티어 → 글로벌 ETF 맞춤 자산배분 추천 (Streamlit)
 
 - 설문 7문항 점수로 성향(안정추구형 / 위험중립형 / 공격추구형)과 프론티어 위 위치를 정하고, 그 지점의 ETF 비중을 추천
-- 미국 상장 ETF 10종 버전 / 한국 상장 ETF 10종 버전
+- 투자 대상 세 가지: 미국 상장 ETF 10종 / 한국 상장 ETF 10종 / 한국·미국 대형주 20종목(원화 기준)
 - 비교 기준: MVP, 최대샤프(참고), Risk Parity, Most Diversified, Equal Weight
 - 성과: 매년 말 리밸런싱 백테스트 (CAGR, 변동성, 샤프, 소르티노, MDD, 연도별 수익률, 하락장 구간)
 
@@ -28,7 +28,7 @@ python3 -m venv .venv
 |---|---|
 | `app.py` | Streamlit 화면 (설문 / 내 포트폴리오 / 모형 비교 / 성과 리포트 / 자산 정보) |
 | `build_data.py` | 프론티어 100개 지점, 백테스트를 미리 계산해 `data/`에 저장 |
-| `core/config.py` | 투자 대상 ETF 두 버전과 공통 설정 |
+| `core/config.py` | 투자 대상 세 가지와 공통 설정 |
 | `core/survey.py` | M1 투자성향 진단 |
 | `core/frontier.py` | M2 효율적 프론티어, 성향 위치별 비중 |
 | `core/backtest.py` | M3 비교 모형 + M4 백테스트 |
