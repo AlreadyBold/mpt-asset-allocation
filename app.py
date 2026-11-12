@@ -59,6 +59,12 @@ def fig_layout(fig: go.Figure, height=380, **kw) -> go.Figure:
     return fig
 
 
+def shade(hex_color: str, t: float) -> str:
+    """색을 흰색 쪽으로 t만큼 섞음 (0 = 원래 색). 같은 계열 안에서 종목을 구분할 때 씀."""
+    rgb = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(v + (255 - v) * t):02x}" for v in rgb)
+
+
 def pct(x, d=1):
     return f"{x * 100:.{d}f}%"
 
@@ -379,14 +385,25 @@ with g1:
     st.plotly_chart(fig_layout(fig, 420), width="stretch", config={"displayModeBar": False})
     st.caption(f"회색 점({UNIT} 하나만 샀을 때)보다 곡선이 왼쪽 위에 있다는 것 = 나눠 담으면 같은 수익을 더 적은 흔들림으로 얻는다는 뜻")
 with g2:
-    st.markdown(f"**위험 수준에 따른 {CLASS_LABEL} 비중**")
-    cls_w = ft[names].T.groupby(assets["class"]).sum().T
+    by_asset = st.segmented_control("위험 수준에 따른 비중", [CLASS_LABEL, UNIT], default=CLASS_LABEL,
+                                    format_func=lambda x: f"{x}별", key="weight_view") == UNIT
     fig = go.Figure()
-    for c in CLASS_COLOR:
-        if c in cls_w:
-            fig.add_trace(go.Scatter(x=ft["Return"], y=cls_w[c], stackgroup="one", name=c, mode="lines",
-                                     line=dict(width=0.5, color=CLASS_COLOR[c]), fillcolor=CLASS_COLOR[c],
-                                     hovertemplate=c + " %{y:.0%}<extra></extra>"))
+    if by_asset:
+        # 종목별: 같은 자산군 종목끼리 같은 계열 색, 진하기만 다르게 (색이 8개를 넘지 않게)
+        for c in CLASS_COLOR:
+            members = [n for n in names if assets.loc[n, "class"] == c and ft[n].max() > 0.001]
+            for k_, n in enumerate(members):
+                col = shade(CLASS_COLOR[c], 0.6 * k_ / max(len(members), 2))
+                fig.add_trace(go.Scatter(x=ft["Return"], y=ft[n], stackgroup="one", name=n, mode="lines",
+                                         line=dict(width=0.5, color="#fcfcfb"), fillcolor=col,
+                                         hovertemplate=n + " %{y:.0%}<extra></extra>"))
+    else:
+        cls_w = ft[names].T.groupby(assets["class"]).sum().T
+        for c in CLASS_COLOR:
+            if c in cls_w:
+                fig.add_trace(go.Scatter(x=ft["Return"], y=cls_w[c], stackgroup="one", name=c, mode="lines",
+                                         line=dict(width=0.5, color=CLASS_COLOR[c]), fillcolor=CLASS_COLOR[c],
+                                         hovertemplate=c + " %{y:.0%}<extra></extra>"))
     fig.add_vline(x=P["Return"], line=dict(color=INK, width=2, dash="dot"),
                   annotation_text="지금 추천", annotation_position="bottom right",
                   annotation_font=dict(color="#fcfcfb", size=12))
