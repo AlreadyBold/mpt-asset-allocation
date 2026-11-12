@@ -306,13 +306,24 @@ st.info(f"**한 줄 요약** · {money_obj(amount)} 투자하면 1년 뒤 평균
 
 # ================================================================ 2. 과거 성과
 st.header("과거에 이렇게 투자했다면", anchor="history", divider="gray")
-eq = pd.DataFrame({"내 포트폴리오": my_nav, "EW": nav_all["EW"]})
+years = st.segmented_control("언제 투자를 시작했다면?", [10, 5, 3, 1], default=10, key="period",
+                             format_func=lambda y: f"{y}년 전") or 10
+avail = (nav_all.index[-1] - nav_all.index[0]).days / 365.25
+w_start = max(nav_all.index[-1] - pd.DateOffset(years=years), nav_all.index[0])
+win = nav_all.loc[w_start:]          # 아래 '다른 방법과 비교'도 같은 기간을 씀
+if years > avail + 0.05:
+    st.caption(f"이 투자 대상은 과거 성과 데이터가 {avail:.1f}년치뿐이라 처음({nav_all.index[0]:%Y.%m})부터 보여줍니다.")
+eq = pd.DataFrame({"내 포트폴리오": win["내 포트폴리오"], "EW": win["EW"]})
 eq = eq / eq.iloc[0] * amount
 final, final_ew = eq["내 포트폴리오"].iloc[-1], eq["EW"].iloc[-1]
 yrs = (eq.index[-1] - eq.index[0]).days / 365.25
+cagr_txt = f"연평균 {pct((final / amount) ** (1 / yrs) - 1)}" if yrs >= 1.5 else f"수익률 {pct(final / amount - 1)}"
 st.markdown(f"**{eq.index[0]:%Y년 %m월}**에 {money_obj(amount)} 넣고 매년 말 비중을 다시 맞췄다면, "
-            f"**{eq.index[-1]:%Y년 %m월}**에는 **{money(final)}{'이' if cur == 'KRW' else '가'}** 됐습니다 ({yrs:.0f}년, 연평균 "
-            f"{pct((final / amount) ** (1 / yrs) - 1)}). 모두 같은 금액씩 나눠 담았다면 {money(final_ew)}입니다.")
+            f"**{eq.index[-1]:%Y년 %m월}**에는 **{money(final)}{'이' if cur == 'KRW' else '가'}** 됐습니다 "
+            f"({yrs:.1f}년, {cagr_txt}). 모두 같은 금액씩 나눠 담았다면 {money(final_ew)}입니다.")
+ann_w = bt.annual_returns(win[["내 포트폴리오"]])["내 포트폴리오"]
+if (win.index.year == ann_w.index[0]).sum() < 5:
+    ann_w = ann_w.iloc[1:]
 h1, h2 = st.columns([3, 2], gap="large")
 with h1:
     fig = go.Figure()
@@ -329,14 +340,14 @@ with h1:
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 with h2:
     st.markdown("**해마다 얼마나 벌고 잃었나**")
-    fig = go.Figure(go.Bar(x=[str(y) for y in ann_my.index], y=ann_my,
-                           marker=dict(color=[UP if v >= 0 else DOWN for v in ann_my], cornerradius=3),
-                           text=[pct(v, 0) for v in ann_my], textposition="outside", cliponaxis=False,
+    fig = go.Figure(go.Bar(x=[str(y) for y in ann_w.index], y=ann_w,
+                           marker=dict(color=[UP if v >= 0 else DOWN for v in ann_w], cornerradius=3),
+                           text=[pct(v, 0) for v in ann_w], textposition="outside", cliponaxis=False,
                            textfont=dict(size=11, color=INK2), hovertemplate="%{x}년 %{y:.1%}<extra></extra>"))
     fig.update_yaxes(tickformat=".0%", zeroline=True, zerolinecolor=AXIS)
     st.plotly_chart(fig_layout(fig, 300, showlegend=False), width="stretch", config={"displayModeBar": False})
-    st.caption(f"{len(ann_my)}년 중 수익 {int((ann_my >= 0).sum())}번 · 손실 {int((ann_my < 0).sum())}번 "
-               f"({ann_my.index[-1]}년은 {my_nav.index[-1]:%m월 %d일}까지)")
+    st.caption(f"{len(ann_w)}개 연도 중 수익 {int((ann_w >= 0).sum())}번 · 손실 {int((ann_w < 0).sum())}번 "
+               f"(첫해는 {win.index[0]:%m월}부터, {ann_w.index[-1]}년은 {win.index[-1]:%m월 %d일}까지)")
 
 # ================================================================ 3. 위험 조절 원리 (효율적 프론티어)
 st.header("위험을 올리면 무엇이 바뀌나", anchor="frontier", divider="gray")
@@ -385,11 +396,11 @@ with g2:
 
 # ================================================================ 4. 다른 방법과 비교
 st.header("다른 투자 방법과 비교하면", anchor="compare", divider="gray")
-st.markdown(f"같은 기간({nav_all.index[0]:%Y.%m}~{nav_all.index[-1]:%Y.%m}) {money_obj(amount)} 각 방법으로 투자했을 때입니다. "
+st.markdown(f"위에서 고른 기간({win.index[0]:%Y.%m}~{win.index[-1]:%Y.%m}) 동안 {money_obj(amount)} 각 방법으로 투자했을 때입니다. "
             "**최종 금액은 클수록, 최대 하락은 작을수록** 좋습니다.")
 order = ["내 포트폴리오", *MODELS]
-fin = pd.Series({m: nav_all[m].iloc[-1] / nav_all[m].iloc[0] * amount for m in order})
-mdd = pd.Series({m: float((nav_all[m] / nav_all[m].cummax() - 1).min()) for m in order})
+fin = pd.Series({m: win[m].iloc[-1] / win[m].iloc[0] * amount for m in order})
+mdd = pd.Series({m: float((win[m] / win[m].cummax() - 1).min()) for m in order})
 labels = [FRIENDLY[m] for m in order]
 colors = [UP if m == "내 포트폴리오" else "#b9b8b2" for m in order]
 b1, b2 = st.columns(2, gap="large")
